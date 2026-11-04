@@ -1,0 +1,17 @@
+name: cravedash-site1
+
+services:
+  site1:
+    build:
+      context: .
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:4000/api/v1}
+        VITE_API_KEY: ${VITE_API_KEY:-}
+        VITE_RESTAURANT_ID: ${VITE_RESTAURANT_ID:-17}
+    container_name: cravedash-site1
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8081}:80"
+    env_file:
+      - path: .env
+        required: false

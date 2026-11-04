@@ -1,0 +1,11 @@
+node_modules/
+dist/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Local files
+.DS_Store
+*.log
