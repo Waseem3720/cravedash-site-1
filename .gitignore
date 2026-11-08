@@ -1,11 +1,9 @@
 node_modules/
 dist/
 
-# Environment files
-.env
-.env.*
-!.env.example
+# Keep .env (public base URL) tracked; put real secrets in .env.local
+.env.local
+.env.*.local
 
-# Local files
 .DS_Store
 *.log

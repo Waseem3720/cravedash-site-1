@@ -59,7 +59,7 @@ export default function Header() {
 
   return (
     <div className={`site-chrome${menuOpen ? ' is-nav-open' : ''}`}>
-      <TopBar onBranch={() => setBranchOpen(true)} />
+      <TopBar />
       <BranchModal
         open={branchOpen}
         branches={branches}
@@ -132,6 +132,16 @@ export default function Header() {
           </nav>
 
           <div className="cd-hdr__actions">
+            {branches.length > 0 ? (
+              <button
+                type="button"
+                className="cd-btn cd-btn--ghost cd-hdr__branch"
+                onClick={() => setBranchOpen(true)}
+              >
+                Branch: {selectedBranch?.name || 'Select'}
+              </button>
+            ) : null}
+
             {isSignedIn ? (
               <div className={`account${accountOpen ? ' is-open' : ''}`} ref={accountRef}>
                 {/* Clicking the name goes straight to the account page. */}

@@ -10,6 +10,48 @@ const rawBaseUrl = import.meta.env.VITE_API_BASE_URL || ''
 
 export const API_BASE_URL = rawBaseUrl.replace(/\/+$/, '')
 export const API_KEY = import.meta.env.VITE_API_KEY || ''
+
+const RESTAURANT_STORAGE_KEY = 'cravedash_restaurant_id'
+
+/**
+ * Dynamically resolves the active restaurant tenant.
+ * Priority:
+ * 1. URL search parameter: `?restaurant_id=r15` or `?r=r15`
+ * 2. Saved preference in localStorage
+ * 3. Fallback to `VITE_RESTAURANT_ID` from `.env`
+ */
+export function getRestaurantId() {
+  try {
+    if (typeof window !== 'undefined' && window.location) {
+      const params = new URLSearchParams(window.location.search)
+      const fromUrl = params.get('restaurant_id') || params.get('r')
+      if (fromUrl && fromUrl.trim()) {
+        const clean = fromUrl.trim()
+        window.localStorage.setItem(RESTAURANT_STORAGE_KEY, clean)
+        return clean
+      }
+      const stored = window.localStorage.getItem(RESTAURANT_STORAGE_KEY)
+      if (stored && stored.trim()) return stored.trim()
+    }
+  } catch {
+    /* storage or url access blocked */
+  }
+  return import.meta.env.VITE_RESTAURANT_ID || ''
+}
+
+export function setRestaurantId(id) {
+  try {
+    if (id) window.localStorage.setItem(RESTAURANT_STORAGE_KEY, String(id).trim())
+    else window.localStorage.removeItem(RESTAURANT_STORAGE_KEY)
+  } catch {
+    /* storage blocked */
+  }
+}
+
+/**
+ * Kept for backwards compatibility with existing imports.
+ * Uses a getter so callers always evaluate the current active tenant.
+ */
 export const RESTAURANT_ID = import.meta.env.VITE_RESTAURANT_ID || ''
 
 const TOKEN_STORAGE_KEY = 'ppp-api-token'
@@ -98,13 +140,14 @@ export async function request(
   }
 
   // The local gateway's public routes take the tenant from `restaurant_id` in the query string.
-  const tenantQuery = RESTAURANT_ID ? { restaurant_id: RESTAURANT_ID, ...query } : query
+  const activeRestaurantId = getRestaurantId()
+  const tenantQuery = activeRestaurantId ? { restaurant_id: activeRestaurantId, ...query } : query
   const url = `${API_BASE_URL}${path.startsWith('/') ? path : `/${path}`}${buildQuery(tenantQuery)}`
   const requestHeaders = { Accept: 'application/json', ...headers }
   const token = getToken()
 
   if (API_KEY) requestHeaders['X-API-KEY'] = API_KEY
-  if (RESTAURANT_ID) requestHeaders['X-Restaurant-Id'] = RESTAURANT_ID
+  if (activeRestaurantId) requestHeaders['X-Restaurant-Id'] = activeRestaurantId
   if (token) requestHeaders.Authorization = `Bearer ${token}`
 
   let payload

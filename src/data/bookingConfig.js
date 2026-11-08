@@ -4,7 +4,7 @@ export const bookingConfig = {
   timezone: 'Europe/London',
   restaurantId: 'r1',
   storageKey: 'cravedash_booking_design_demo_v2',
-  restaurantName: 'TKR',
+  restaurantName: 'CraveDash',
   logoUrl: '/images/tkr-logo.jpg'
 }
 

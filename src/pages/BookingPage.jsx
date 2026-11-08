@@ -11,6 +11,7 @@ import { isApiConfigured } from '../api/client'
 import { createReservation, getReservationAvailability, getReservationSettings } from '../api/reservations'
 import { useAuth } from '../context/AuthContext'
 import { useUI } from '../context/UIContext'
+import { useStorefront } from '../context/StorefrontContext'
 
 const PHONE_RE = /^\+?[\d\s()-]{7,25}$/
 
@@ -38,6 +39,7 @@ export default function BookingPage() {
   const apiMode = isApiConfigured()
   const { isSignedIn } = useAuth()
   const { openAuth } = useUI()
+  const { restaurantName } = useStorefront()
   const [liveSettings, setLiveSettings] = useState(null)
   const [liveSlots, setLiveSlots] = useState([])
   const [slotsError, setSlotsError] = useState(false)
@@ -111,11 +113,12 @@ export default function BookingPage() {
   }, [settings.max_guests])
 
   useEffect(() => {
-    document.title = `Book a table · ${bookingConfig.restaurantName}`
+    const brand = restaurantName || 'CraveDash'
+    document.title = `Book a table · ${brand}`
     return () => {
-      document.title = 'TKR'
+      document.title = brand
     }
-  }, [])
+  }, [restaurantName])
 
   const availableTimes = useMemo(() => {
     if (apiMode) return liveSlots
@@ -259,9 +262,6 @@ export default function BookingPage() {
 
       <main>
         <div className="booking-hero">
-          <span className="hero-icon" aria-hidden="true">
-            ✦
-          </span>
           <p className="eyebrow">Good food. Great company.</p>
           <h1>Book a table</h1>
           <p className="intro">

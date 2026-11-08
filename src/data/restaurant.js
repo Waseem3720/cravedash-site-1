@@ -3,8 +3,8 @@
  * details (mirrors the `config` payload of the original static site).
  */
 export const restaurant = {
-  name: 'TKR',
-  brandMark: 'T',
+  name: 'CraveDash',
+  brandMark: 'C',
   phone: '03101773357',
   phoneHref: 'tel:03101773357',
   email: 'hello@portopiripiri.co.uk',

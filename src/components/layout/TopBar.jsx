@@ -4,10 +4,10 @@ import { formatPrice } from '../../utils/format'
 import { useDelivery } from '../../context/DeliveryContext'
 import { useStorefront } from '../../context/StorefrontContext'
 
-export default function TopBar({ onBranch }) {
+export default function TopBar() {
   const { profile } = useStorefront()
   const { openGate } = useDelivery()
-  const { branches, selectedBranch, ordering } = useStorefront()
+  const { ordering } = useStorefront()
 
   return (
     <div className="topbar">
@@ -25,11 +25,6 @@ export default function TopBar({ onBranch }) {
             <Icon name="truck" />
             Free delivery on order above <b>{formatPrice(ordering.freeDeliveryOver)}</b>
           </span>
-        ) : null}
-        {branches.length > 0 ? (
-          <button type="button" className="topbar__item topbar__postcode" onClick={onBranch}>
-            Branch: {selectedBranch?.name || 'Select'}
-          </button>
         ) : null}
         <button type="button" className="topbar__item topbar__postcode" onClick={openGate}>
           Check delivery postcode
