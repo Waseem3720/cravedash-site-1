@@ -79,14 +79,12 @@ export function StorefrontProvider({ children }) {
   const [branchId, setBranchId] = useState(readStoredBranch)
   const [story, setStory] = useState(null)
   const [contact, setContact] = useState(null)
-  const [restaurantName, setRestaurantName] = useState('')
   // Each load gets a number; an older response that arrives late is ignored.
   const requestRef = useRef(0)
 
   const load = useCallback(async (requestedBranch = '') => {
     if (!isApiConfigured()) {
       setSource('demo')
-      document.title = 'CraveDash'
       return
     }
 
@@ -106,12 +104,6 @@ export function StorefrontProvider({ children }) {
     let activeBranch = requestedBranch
     if (configResult.status === 'fulfilled') {
       const mapped = mapConfig(configResult.value)
-      if (mapped?.name) {
-        setRestaurantName(mapped.name)
-        document.title = mapped.name
-      } else {
-        document.title = 'CraveDash'
-      }
       if (mapped?.ordering) setOrdering(withDefaults(mapped.ordering))
       setStory(mapped?.story || null)
       setContact(mapped?.contact || null)
@@ -123,8 +115,6 @@ export function StorefrontProvider({ children }) {
         activeBranch = fallback ? fallback.id : ''
       }
       setBranchId(activeBranch)
-    } else {
-      document.title = 'CraveDash'
     }
 
     const [catalogResult, bannerResult] = await Promise.allSettled([getCatalog(activeBranch), getBanners()])
@@ -185,10 +175,9 @@ export function StorefrontProvider({ children }) {
       selectedBranch,
       selectBranch,
       story,
-      profile,
-      restaurantName
+      profile
     }),
-    [catalog, banners, ordering, source, error, refresh, branches, branchId, selectedBranch, selectBranch, story, profile, restaurantName]
+    [catalog, banners, ordering, source, error, refresh, branches, branchId, selectedBranch, selectBranch, story, profile]
   )
 
   return <StorefrontContext.Provider value={value}>{children}</StorefrontContext.Provider>

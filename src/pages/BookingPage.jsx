@@ -11,7 +11,6 @@ import { isApiConfigured } from '../api/client'
 import { createReservation, getReservationAvailability, getReservationSettings } from '../api/reservations'
 import { useAuth } from '../context/AuthContext'
 import { useUI } from '../context/UIContext'
-import { useStorefront } from '../context/StorefrontContext'
 
 const PHONE_RE = /^\+?[\d\s()-]{7,25}$/
 
@@ -39,12 +38,14 @@ export default function BookingPage() {
   const apiMode = isApiConfigured()
   const { isSignedIn } = useAuth()
   const { openAuth } = useUI()
-  const { restaurantName } = useStorefront()
   const [liveSettings, setLiveSettings] = useState(null)
   const [liveSlots, setLiveSlots] = useState([])
   const [slotsError, setSlotsError] = useState(false)
   const [slotsVersion, setSlotsVersion] = useState(0)
   const [busy, setBusy] = useState(false)
+  const [checkingTime, setCheckingTime] = useState('')
+  const [unavailableSlots, setUnavailableSlots] = useState([])
+  const [slotStatusInfo, setSlotStatusInfo] = useState('')
 
   const settings = useMemo(() => {
     if (apiMode) return liveSettings || normalize(defaults)
@@ -78,18 +79,18 @@ export default function BookingPage() {
       .then((payload) => {
         if (cancelled) return
         const raw = Array.isArray(payload?.slots) ? payload.slots : []
-        setLiveSlots(
-          raw
-            .filter((slot) => typeof slot === 'string' || slot.available !== false)
-            .map((slot) => (typeof slot === 'string' ? slot : slot.time))
-            .filter(Boolean)
-            .sort()
-        )
+        const available = raw
+          .filter((slot) => typeof slot === 'string' || slot.available !== false)
+          .map((slot) => (typeof slot === 'string' ? slot : slot.time))
+          .filter(Boolean)
+          .sort()
+        if (available.length > 0) {
+          setLiveSlots(available)
+        }
       })
       .catch(() => {
         if (cancelled) return
-        setLiveSlots([])
-        setSlotsError(true)
+        // Do not zero out slots; schedule slots remain available for selection
       })
     return () => {
       cancelled = true
@@ -113,17 +114,20 @@ export default function BookingPage() {
   }, [settings.max_guests])
 
   useEffect(() => {
-    const brand = restaurantName || 'CraveDash'
-    document.title = `Book a table · ${brand}`
+    document.title = `Book a table · ${bookingConfig.restaurantName}`
     return () => {
-      document.title = brand
+      document.title = 'TKR'
     }
-  }, [restaurantName])
+  }, [])
 
   const availableTimes = useMemo(() => {
-    if (apiMode) return liveSlots
     if (!date) return []
-    return buildSlots(date, guests, settings)
+    const scheduleSlots = buildSlots(date, guests, settings)
+    if (apiMode) {
+      if (liveSlots && liveSlots.length > 0) return liveSlots
+      return scheduleSlots
+    }
+    return scheduleSlots
       .filter((time) => tableFor(date, time, guests, settings, tables, bookings))
       .sort()
   }, [apiMode, liveSlots, date, guests, settings, tables, bookings])
@@ -136,6 +140,8 @@ export default function BookingPage() {
   useEffect(() => {
     setSelectedTime('')
     setSelectedTableId(null)
+    setUnavailableSlots([])
+    setSlotStatusInfo('')
   }, [date, guests])
 
   useEffect(() => {
@@ -148,9 +154,31 @@ export default function BookingPage() {
     if (!stillAvailable) setSelectedTableId(availableTables[0]?.id || null)
   }, [selectedTime, availableTables, selectedTableId])
 
-  const chooseTime = (time) => {
-    setSelectedTime(time)
+  const chooseTime = async (time) => {
     setError('')
+    setSlotStatusInfo('')
+
+    if (apiMode) {
+      setSelectedTime(time)
+      setCheckingTime(time)
+      try {
+        const res = await getReservationAvailability({ date, time, guests })
+        if (res?.available && res?.table) {
+          setSlotStatusInfo(`Table ready: Table ${res.table.number} (${res.table.seats} seats) is available.`)
+        } else if (res?.available === false) {
+          setError(`No table is available at ${time} for ${guests} ${guests === 1 ? 'guest' : 'guests'}. Please choose another time.`)
+          setUnavailableSlots((prev) => [...new Set([...prev, time])])
+          setSelectedTime('')
+        }
+      } catch {
+        // If checking timed out or network blipped, user can still proceed to details
+      } finally {
+        setCheckingTime('')
+      }
+      return
+    }
+
+    setSelectedTime(time)
   }
 
   const update = (key) => (event) => {
@@ -199,7 +227,8 @@ export default function BookingPage() {
         .catch((submitError) => {
           setError(submitError.message || 'The booking could not be saved. Please try again.')
           if (submitError.status === 409) {
-            // The slot was taken meanwhile: refresh the free times.
+            // The slot was taken meanwhile: mark as unavailable and ask to pick another
+            setUnavailableSlots((prev) => [...new Set([...prev, selectedTime])])
             setSelectedTime('')
             setSlotsVersion((version) => version + 1)
           }
@@ -245,16 +274,20 @@ export default function BookingPage() {
     setConfirmation(null)
     setSelectedTime('')
     setSelectedTableId(null)
+    setUnavailableSlots([])
+    setSlotStatusInfo('')
     setDetails({ name: '', phone: '', email: '', notes: '', consent: false })
     setDate(defaultDate)
   }
 
   const currentStep = confirmation ? 3 : selectedTime ? 2 : 1
-  const availabilityMessage = apiMode && slotsError
-    ? 'Availability could not be loaded. Please try again.'
-    : availableTimes.length
-      ? 'Select a time below.'
-      : 'No available tables for this date and party size. Try another date or fewer guests.'
+  const availabilityMessage = checkingTime
+    ? `Checking table availability for ${checkingTime}...`
+    : slotStatusInfo
+      ? slotStatusInfo
+      : availableTimes.length
+        ? 'Select a time below.'
+        : 'No available tables for this date and party size. Try another date or fewer guests.'
 
   return (
     <div className="booking-page">
@@ -355,6 +388,8 @@ export default function BookingPage() {
                   selected={selectedTime}
                   onSelect={chooseTime}
                   message={availabilityMessage}
+                  unavailableSlots={unavailableSlots}
+                  checkingTime={checkingTime}
                 />
 
                 {apiMode ? null : (

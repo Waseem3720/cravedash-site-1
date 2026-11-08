@@ -1,11 +1,14 @@
 import AccountView from './AccountView'
 import FoodCard from '../menu/FoodCard'
-import { products } from '../../data/products'
+import { products as demoProducts } from '../../data/products'
 import { useFavourites } from '../../context/FavouritesContext'
+import { useStorefront } from '../../context/StorefrontContext'
 
 export default function FavouritesView({ onBack }) {
   const { ids } = useFavourites()
-  const favourites = products.filter((product) => ids.includes(product.id))
+  const { products: liveProducts } = useStorefront()
+  const sourceProducts = Array.isArray(liveProducts) && liveProducts.length ? liveProducts : demoProducts
+  const favourites = sourceProducts.filter((product) => ids.some((id) => String(id) === String(product.id)))
 
   return (
     <AccountView title="Favourites" subtitle="Your saved dishes" onBack={onBack} hero>

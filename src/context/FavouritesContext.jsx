@@ -34,17 +34,18 @@ export function FavouritesProvider({ children }) {
     }
   }, [syncOnServer, setIds])
 
-  const isFavourite = useCallback((id) => ids.includes(id), [ids])
+  const isFavourite = useCallback((id) => ids.some((item) => String(item) === String(id)), [ids])
 
   const toggle = useCallback(
     (id) => {
-      const saved = ids.includes(id)
-      setIds((current) => (saved ? current.filter((item) => item !== id) : [...current, id]))
+      const idStr = String(id)
+      const saved = ids.some((item) => String(item) === idStr)
+      setIds((current) => (saved ? current.filter((item) => String(item) !== idStr) : [...current, idStr]))
       if (!syncOnServer) return
       const request = saved ? wishlistApi.removeFromWishlist(id) : wishlistApi.addToWishlist(id)
       request.catch(() => {
         // Put the product back the way the server has it when the change was refused.
-        setIds((current) => (saved ? [...current, id] : current.filter((item) => item !== id)))
+        setIds((current) => (saved ? [...current, idStr] : current.filter((item) => String(item) !== idStr)))
       })
     },
     [ids, setIds, syncOnServer]

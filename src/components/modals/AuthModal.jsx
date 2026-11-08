@@ -5,16 +5,62 @@ import { useAuth } from '../../context/AuthContext'
 import { useUI } from '../../context/UIContext'
 import { useToast } from '../../context/ToastContext'
 
+import * as authApi from '../../api/auth'
+
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
 const UK_MOBILE_RE = /^07\d{9}$/
 
 function LoginForm({ onSwitch }) {
-  const { login } = useAuth()
+  const { login, loginWithSocial } = useAuth()
   const { closeAuth } = useUI()
   const { toast } = useToast()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const handleSocial = async (provider) => {
+    setError('')
+    setBusy(true)
+    try {
+      if (provider === 'google') {
+        const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID
+        if (!googleClientId) {
+          throw new Error('Google sign-in is currently unavailable. Please try another method.')
+        }
+        if (typeof window.google === 'undefined') {
+          throw new Error('Google sign-in service is initializing. Please try again.')
+        }
+        // Initialize Google Prompt / Token flow
+        window.google.accounts.id.initialize({
+          client_id: googleClientId,
+          callback: async (response) => {
+            try {
+              await loginWithSocial({ provider: 'google', idToken: response.credential })
+              closeAuth()
+              toast('Signed in with Google!')
+            } catch (authErr) {
+              setError(authErr?.message || 'Google sign-in could not be completed.')
+            }
+          }
+        })
+        window.google.accounts.id.prompt()
+        return
+      }
+
+      if (provider === 'apple') {
+        const appleClientId = import.meta.env.VITE_APPLE_CLIENT_ID
+        if (!appleClientId) {
+          throw new Error('Apple sign-in is currently unavailable. Please try another method.')
+        }
+        throw new Error('Apple sign-in is currently unavailable.')
+      }
+    } catch (err) {
+      setError(err?.message || `Could not sign in with ${provider}.`)
+    } finally {
+      setBusy(false)
+    }
+  }
 
   const onSubmit = async (event) => {
     event.preventDefault()
@@ -84,11 +130,21 @@ function LoginForm({ onSwitch }) {
         </p>
         <div className="or">or</div>
         <div className="socials-auth">
-          <button className="social-btn social-btn--apple" type="button" disabled>
+          <button
+            className="social-btn social-btn--apple"
+            type="button"
+            onClick={() => handleSocial('apple')}
+            disabled={busy}
+          >
             <Icon name="apple" />
             Continue with Apple
           </button>
-          <button className="social-btn" type="button" disabled>
+          <button
+            className="social-btn"
+            type="button"
+            onClick={() => handleSocial('google')}
+            disabled={busy}
+          >
             <Icon name="google" />
             Continue with Google
           </button>
@@ -347,10 +403,23 @@ function RegisterForm({ onSwitch }) {
 function ForgotForm({ onSwitch }) {
   const [email, setEmail] = useState('')
   const [sent, setSent] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
 
-  const onSubmit = (event) => {
+  const onSubmit = async (event) => {
     event.preventDefault()
-    setSent(true)
+    if (!EMAIL_RE.test(email.trim())) return setError('Enter a valid e-mail address.')
+    setError('')
+    setBusy(true)
+    try {
+      await authApi.requestPasswordReset(email.trim().toLowerCase())
+      setSent(true)
+    } catch {
+      // Security best practice: show confirmation even if email is unlisted to avoid account enumeration
+      setSent(true)
+    } finally {
+      setBusy(false)
+    }
   }
 
   return (
@@ -358,7 +427,7 @@ function ForgotForm({ onSwitch }) {
       <h2 className="modal__title">Reset password</h2>
       <form onSubmit={onSubmit}>
         <p className="pp-muted">
-          Enter the e-mail you use for Porto Piri Piri and we will send a reset link.
+          Enter the e-mail associated with your account and we will send you a reset link.
         </p>
         <div className="field">
           <label htmlFor="fp-email">E-mail *</label>
@@ -372,12 +441,13 @@ function ForgotForm({ onSwitch }) {
             onChange={(event) => setEmail(event.target.value)}
           />
         </div>
-        <button className="btn btn--primary btn--block btn--lg" type="submit">
-          Send reset link
+        {error && <p className="pp-form-error">{error}</p>}
+        <button className="btn btn--primary btn--block btn--lg" type="submit" disabled={busy}>
+          {busy ? 'Sending…' : 'Send reset link'}
         </button>
         {sent && (
           <p className="note" style={{ marginTop: 16 }}>
-            If an account exists for {email}, a reset link is on its way.
+            If an account exists for {email}, instructions to reset your password have been sent.
           </p>
         )}
         <p className="modal__alt">

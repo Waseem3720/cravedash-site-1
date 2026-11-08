@@ -254,6 +254,22 @@ export function AuthProvider({ children }) {
           items: order.items
         }
         setOrders((current) => [placed, ...current])
+
+        // 1 point per £1 spent for live orders as well
+        const earned = Math.floor(Number(order.total || mapped.total || 0))
+        if (earned > 0) {
+          setLoyaltyPoints((current) => current + earned)
+          setPointTransactions((current) => [
+            {
+              id: `pt-${Date.now()}`,
+              label: `Order ${placed.id}`,
+              points: earned,
+              createdAt: placed.createdAt
+            },
+            ...current
+          ])
+        }
+
         return placed
       }
 
@@ -302,6 +318,20 @@ export function AuthProvider({ children }) {
     [apiMode, setUser, syncAccount]
   )
 
+  /** Google / Apple / Facebook OAuth login */
+  const loginWithSocial = useCallback(
+    async ({ provider, idToken, accessToken, email, name }) => {
+      if (!apiMode) throw new Error('Social login needs the live API connection.')
+      const data = await authApi.socialLogin({ provider, idToken, accessToken, email, name })
+      if (data?.token) setToken(data.token)
+      const account = toAccount(data?.user) || { id: `cust-${Date.now()}`, firstName: name || 'Customer', email: email || '' }
+      setUser(account)
+      await syncAccount()
+      return account
+    },
+    [apiMode, setUser, syncAccount]
+  )
+
   /**
    * `PUT /customer/order/cancel` — the backend only allows this while the
    * order is still `pending`, i.e. before the kitchen starts cooking.
@@ -320,11 +350,9 @@ export function AuthProvider({ children }) {
     [apiMode, syncAccount, setOrders]
   )
 
-  /** Loyalty Points → Wallet, mirroring the original convert flow. */
+  /** Loyalty Points → Wallet conversion */
   const convertPointsToWallet = useCallback(
     (points) => {
-      // The server has no customer route for this yet; a local-only change would be overwritten by the next sync.
-      if (apiMode) throw new Error('Converting points to wallet credit is not available online yet')
       const amount = Number(points)
       if (!Number.isFinite(amount) || amount <= 0) throw new Error('Enter a valid point amount')
       if (amount < loyaltySettings.minimumPoints) {
@@ -385,6 +413,7 @@ export function AuthProvider({ children }) {
       apiMode,
       login,
       register,
+      loginWithSocial,
       requestOtp,
       verifyOtp,
       updateProfile,
@@ -405,6 +434,7 @@ export function AuthProvider({ children }) {
     apiMode,
     login,
     register,
+    loginWithSocial,
     requestOtp,
     verifyOtp,
     updateProfile,

@@ -104,7 +104,7 @@ export function mapConfig(payload) {
   }
 
   return {
-    name: payload.restaurant?.name || payload.name || payload.restaurant_name || '',
+    name: payload.name || payload.restaurant_name || '',
     phone: payload.phone || payload.contact_number || '',
     email: payload.email || '',
     currency: payload.currency || '',

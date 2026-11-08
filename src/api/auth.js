@@ -77,3 +77,8 @@ export function requestEmailVerification(email) {
 export function confirmEmailVerification(token) {
   return api.get('/auth/email-verification/confirm', { query: { token } })
 }
+
+/** Password reset request (`POST /auth/forgot-password`). */
+export function requestPasswordReset(email) {
+  return api.post('/auth/forgot-password', { email })
+}

@@ -73,7 +73,7 @@ export default function Header() {
       <header className="cd-hdr">
         <div className="container cd-hdr__in">
           <Link className="cd-brand" aria-label={`${restaurant.name} home`} to="/">
-            <img className="cd-brand__img" src="/images/tkr-logo.jpg" alt={restaurant.name} />
+            <img className="cd-brand__img" src="/images/porto-logo.png" alt={restaurant.name} />
           </Link>
 
           <nav className={`cd-hdr__nav${menuOpen ? ' is-open' : ''}`} aria-label="Main navigation">
@@ -83,7 +83,7 @@ export default function Header() {
                 className="cd-hdr__nav-action cd-hdr__branch-mobile"
                 onClick={() => setBranchOpen(true)}
               >
-                Branch: {selectedBranch?.name || 'Select'}
+                {selectedBranch?.name || 'Select'}
               </button>
             ) : null}
             {NAV_LINKS.map((link) => (
@@ -138,7 +138,7 @@ export default function Header() {
                 className="cd-btn cd-btn--ghost cd-hdr__branch"
                 onClick={() => setBranchOpen(true)}
               >
-                Branch: {selectedBranch?.name || 'Select'}
+                {selectedBranch?.name || 'Select'}
               </button>
             ) : null}
 

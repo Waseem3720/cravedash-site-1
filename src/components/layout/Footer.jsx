@@ -11,7 +11,7 @@ export default function Footer() {
         <div className="cd-ftr__grid">
           <div>
             <Link className="cd-brand cd-brand--ftr" to="/#home" aria-label={`${restaurant.name} home`}>
-              <img className="cd-brand__img" src="/images/tkr-logo.jpg" alt={restaurant.name} />
+              <img className="cd-brand__img" src="/images/porto-logo.png" alt={restaurant.name} />
             </Link>
           </div>
 

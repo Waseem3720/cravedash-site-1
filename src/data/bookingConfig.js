@@ -4,8 +4,8 @@ export const bookingConfig = {
   timezone: 'Europe/London',
   restaurantId: 'r1',
   storageKey: 'cravedash_booking_design_demo_v2',
-  restaurantName: 'CraveDash',
-  logoUrl: '/images/tkr-logo.jpg'
+  restaurantName: 'Porto Piri Piri',
+  logoUrl: '/images/porto-logo.png'
 }
 
 /** Tables used by the demo/preview booking mode. */

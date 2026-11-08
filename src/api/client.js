@@ -30,12 +30,11 @@ export function getRestaurantId() {
         window.localStorage.setItem(RESTAURANT_STORAGE_KEY, clean)
         return clean
       }
-      const stored = window.localStorage.getItem(RESTAURANT_STORAGE_KEY)
-      if (stored && stored.trim()) return stored.trim()
     }
   } catch {
     /* storage or url access blocked */
   }
+  // Primary default strictly from .env
   return import.meta.env.VITE_RESTAURANT_ID || ''
 }
 
