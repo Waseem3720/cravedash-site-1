@@ -59,6 +59,12 @@ export default function MenuSection({ showHeading = true }) {
       : filtered.some((product) => product.categoryId === category.id)
   )
 
+  useEffect(() => {
+    if (visibleCategories.length > 0 && !visibleCategories.some((c) => c.id === activeId)) {
+      setActiveId(visibleCategories[0].id)
+    }
+  }, [visibleCategories, activeId])
+
   /**
    * While a rail click glides the page, the scroll spy would re-highlight
    * every section it flies past (the "blink"), so it is paused until the
@@ -118,7 +124,7 @@ export default function MenuSection({ showHeading = true }) {
 
       <CategoryRail
         variant="mobile"
-        categories={railCategories}
+        categories={visibleCategories}
         counts={counts}
         activeId={activeId}
         onSelect={scrollToCategory}
@@ -141,7 +147,7 @@ export default function MenuSection({ showHeading = true }) {
 
             <div className="cd-menu__grid">
               <CategoryRail
-                categories={railCategories}
+                categories={visibleCategories}
                 counts={counts}
                 activeId={activeId}
                 onSelect={(id) => scrollToCategory(id)}

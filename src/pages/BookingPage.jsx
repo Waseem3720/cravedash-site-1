@@ -8,7 +8,12 @@ import useLocalStorage from '../hooks/useLocalStorage'
 import { bookingConfig, demoTables } from '../data/bookingConfig'
 import { defaults, normalize, parts, tableFor, slots as buildSlots } from '../utils/bookingRules'
 import { isApiConfigured } from '../api/client'
-import { createReservation, getReservationAvailability, getReservationSettings } from '../api/reservations'
+import {
+  createReservation,
+  getReservationAvailability,
+  getReservationSettings,
+  getReservationTables
+} from '../api/reservations'
 import { useAuth } from '../context/AuthContext'
 import { useUI } from '../context/UIContext'
 
@@ -40,6 +45,8 @@ export default function BookingPage() {
   const { openAuth } = useUI()
   const [liveSettings, setLiveSettings] = useState(null)
   const [liveSlots, setLiveSlots] = useState([])
+  const [liveTables, setLiveTables] = useState([])
+  const [loadingTables, setLoadingTables] = useState(false)
   const [slotsError, setSlotsError] = useState(false)
   const [slotsVersion, setSlotsVersion] = useState(0)
   const [busy, setBusy] = useState(false)
@@ -137,43 +144,73 @@ export default function BookingPage() {
     return tables.filter((table) => tableFor(date, selectedTime, guests, settings, [table], bookings))
   }, [date, selectedTime, guests, settings, tables, bookings])
 
+  const displayTables = apiMode ? liveTables : tables
+  const displayAvailableIds = useMemo(() => {
+    if (apiMode) {
+      return liveTables.filter((t) => t.free && t.fits).map((t) => t.id)
+    }
+    return availableTables.map((t) => t.id)
+  }, [apiMode, liveTables, availableTables])
+
   useEffect(() => {
     setSelectedTime('')
     setSelectedTableId(null)
+    setLiveTables([])
     setUnavailableSlots([])
     setSlotStatusInfo('')
   }, [date, guests])
 
   useEffect(() => {
-    // With the API on, the server picks the table, so no demo table is chosen here.
-    if (apiMode || !selectedTime) {
+    if (!selectedTime) {
       setSelectedTableId(null)
       return
     }
-    const stillAvailable = availableTables.some((table) => table.id === selectedTableId)
-    if (!stillAvailable) setSelectedTableId(availableTables[0]?.id || null)
-  }, [selectedTime, availableTables, selectedTableId])
+    if (!apiMode) {
+      const stillAvailable = availableTables.some((table) => table.id === selectedTableId)
+      if (!stillAvailable) setSelectedTableId(availableTables[0]?.id || null)
+    }
+  }, [apiMode, selectedTime, availableTables, selectedTableId])
 
   const chooseTime = async (time) => {
     setError('')
     setSlotStatusInfo('')
+    setSelectedTime(time)
+    setSelectedTableId(null)
 
     if (apiMode) {
-      setSelectedTime(time)
       setCheckingTime(time)
+      setLoadingTables(true)
       try {
-        const res = await getReservationAvailability({ date, time, guests })
-        if (res?.available && res?.table) {
-          setSlotStatusInfo(`Table ready: Table ${res.table.number} (${res.table.seats} seats) is available.`)
-        } else if (res?.available === false) {
+        const payload = await getReservationTables({ date, time, guests })
+        const rawTables = Array.isArray(payload?.tables) ? payload.tables : []
+        setLiveTables(rawTables)
+        const freeTables = rawTables.filter((t) => t.free && t.fits)
+        if (freeTables.length > 0) {
+          setSelectedTableId(freeTables[0].id)
+          setSlotStatusInfo(`Table ${freeTables[0].number} (${freeTables[0].seats} seats) is selected. Pick another table below if preferred.`)
+        } else {
           setError(`No table is available at ${time} for ${guests} ${guests === 1 ? 'guest' : 'guests'}. Please choose another time.`)
           setUnavailableSlots((prev) => [...new Set([...prev, time])])
           setSelectedTime('')
         }
       } catch {
-        // If checking timed out or network blipped, user can still proceed to details
+        // Fallback to availability endpoint if tables call experienced a glitch
+        try {
+          const res = await getReservationAvailability({ date, time, guests })
+          if (res?.available && res?.table) {
+            setSlotStatusInfo(`Table ready: Table ${res.table.number} (${res.table.seats} seats).`)
+            setSelectedTableId(res.table.id)
+          } else if (res?.available === false) {
+            setError(`No table is available at ${time} for ${guests} ${guests === 1 ? 'guest' : 'guests'}. Please choose another time.`)
+            setUnavailableSlots((prev) => [...new Set([...prev, time])])
+            setSelectedTime('')
+          }
+        } catch {
+          /* keep selectedTime */
+        }
       } finally {
         setCheckingTime('')
+        setLoadingTables(false)
       }
       return
     }
@@ -213,6 +250,7 @@ export default function BookingPage() {
         date,
         time: selectedTime,
         guests,
+        preferred_table_id: selectedTableId || undefined,
         name: details.name.trim(),
         phone: details.phone.trim(),
         email: details.email.trim().toLowerCase(),
@@ -221,7 +259,14 @@ export default function BookingPage() {
         source: 'website'
       })
         .then((booking) => {
-          setConfirmation({ ...booking, date, time: selectedTime, guests, live: true })
+          setConfirmation({
+            ...booking,
+            date,
+            time: selectedTime,
+            guests,
+            table: booking.table || displayTables.find((t) => t.id === selectedTableId),
+            live: true
+          })
           window.scrollTo({ top: 0, behavior: 'smooth' })
         })
         .catch((submitError) => {
@@ -274,13 +319,14 @@ export default function BookingPage() {
     setConfirmation(null)
     setSelectedTime('')
     setSelectedTableId(null)
+    setLiveTables([])
     setUnavailableSlots([])
     setSlotStatusInfo('')
     setDetails({ name: '', phone: '', email: '', notes: '', consent: false })
     setDate(defaultDate)
   }
 
-  const currentStep = confirmation ? 3 : selectedTime ? 2 : 1
+  const currentStep = confirmation ? 3 : (selectedTime && selectedTableId) ? 3 : selectedTime ? 2 : 1
   const availabilityMessage = checkingTime
     ? `Checking table availability for ${checkingTime}...`
     : slotStatusInfo
@@ -392,22 +438,28 @@ export default function BookingPage() {
                   checkingTime={checkingTime}
                 />
 
-                {apiMode ? null : (
-                  <TablePicker
-                    tables={tables}
-                    availableIds={availableTables.map((table) => table.id)}
-                    selectedId={selectedTableId}
-                    guests={guests}
-                    time={selectedTime}
-                    onSelect={setSelectedTableId}
-                  />
-                )}
+                {selectedTime ? (
+                  loadingTables ? (
+                    <div className="small" style={{ margin: '14px 0', padding: '12px', background: 'var(--orange-soft, #fff3e4)', borderRadius: '9px' }}>
+                      Finding tables for {selectedTime}...
+                    </div>
+                  ) : (
+                    <TablePicker
+                      tables={displayTables}
+                      availableIds={displayAvailableIds}
+                      selectedId={selectedTableId}
+                      guests={guests}
+                      time={selectedTime}
+                      onSelect={setSelectedTableId}
+                    />
+                  )
+                ) : null}
 
                 <div className="selection" id="selection">
                   {selectedTime
-                    ? `${date} at ${selectedTime} · ${guests} guests${
-                        tables.find((table) => table.id === selectedTableId)
-                          ? ` · Table ${tables.find((table) => table.id === selectedTableId).number}`
+                    ? `${date} at ${selectedTime} · ${guests} ${guests === 1 ? 'guest' : 'guests'}${
+                        displayTables.find((table) => table.id === selectedTableId)
+                          ? ` · Table ${displayTables.find((table) => table.id === selectedTableId).number}`
                           : ''
                       }`
                     : 'Choose a time to continue.'}
