@@ -49,6 +49,10 @@ export function AddressProvider({ children }) {
           address_type: address.addressType || 'home',
           contact_person_name: address.contactPersonName,
           contact_person_number: address.contactPersonNumber,
+          house: address.house || '',
+          floor: address.floor || '',
+          road: address.road || '',
+          town: address.address || '',
           address: [address.house, address.floor, address.road, address.address]
             .filter(Boolean)
             .join(', '),

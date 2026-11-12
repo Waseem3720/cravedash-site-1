@@ -94,6 +94,7 @@ export default function PaymentStep({
   onMethodChange,
   card,
   onCardChange,
+  walletBalance = 0,
   error,
   total,
   onContinue
@@ -109,7 +110,24 @@ export default function PaymentStep({
           ? 'Pay with cash when your order arrives.'
           : 'Pay with cash when you collect your order.'
     },
-    { id: 'card', title: 'Card Payment', note: 'Pay securely using your card.' }
+    ...(walletBalance > 0
+      ? [
+        {
+          id: 'wallet',
+          title: `Pay from Wallet (${formatPrice(walletBalance)} available)`,
+          note:
+            walletBalance + 0.001 >= total
+              ? 'Pay the full order total using your wallet balance.'
+              : `Insufficient for full total (${formatPrice(total)}). You can apply partial wallet credit in Order Summary.`,
+          disabled: walletBalance + 0.001 < total
+        }
+      ]
+      : []),
+    {
+      id: 'card',
+      title: 'Pay by Card (Stripe)',
+      note: 'Pay securely online with debit or credit card via Stripe Checkout.'
+    }
   ]
 
   return (
@@ -120,12 +138,16 @@ export default function PaymentStep({
         {methods.map((entry) => {
           const active = method === entry.id
           return (
-            <label className={`pay-option${active ? ' is-active' : ''}`} key={entry.id}>
+            <label
+              className={`pay-option${active ? ' is-active' : ''}${entry.disabled ? ' is-disabled' : ''}`}
+              key={entry.id}
+            >
               <input
                 type="radio"
                 name="payment-method"
                 value={entry.id}
                 checked={active}
+                disabled={Boolean(entry.disabled)}
                 onChange={() => onMethodChange(entry.id)}
               />
               <span className="pay-option__dot" aria-hidden="true" />
@@ -138,7 +160,11 @@ export default function PaymentStep({
         })}
       </div>
 
-      {method === 'card' && <SecureCardForm card={card} onChange={onCardChange} />}
+      {method === 'card' && (
+        <p className="account-muted" style={{ marginTop: 12 }}>
+          You will be redirected to Stripe&apos;s secure checkout page after confirming your order.
+        </p>
+      )}
 
       {error && <p className="pp-form-error">{error}</p>}
 

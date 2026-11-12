@@ -16,7 +16,7 @@ export default function LoyaltyView({ onBack }) {
     setError('')
     setBusy(true)
     try {
-      const credit = convertPointsToWallet(Number(amount))
+      const credit = await convertPointsToWallet(Number(amount))
       setAmount('')
       toast(`${formatPrice(credit)} added to your wallet`)
     } catch (convertError) {

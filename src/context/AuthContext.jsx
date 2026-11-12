@@ -53,8 +53,13 @@ export function AuthProvider({ children }) {
   /** Balances + saved orders come from the API when the customer is signed in. */
   const syncAccount = useCallback(async () => {
     if (!apiMode) return
-    const tasks = [customerApi.getCustomer(), ordersApi.listOrders({ limit: 50, offset: 1 })]
-    const [profile, list] = await Promise.allSettled(tasks)
+    const tasks = [
+      customerApi.getCustomer(),
+      ordersApi.listOrders({ limit: 50, offset: 1 }),
+      customerApi.getWalletTransactions(50, 0),
+      customerApi.getLoyaltyTransactions(50, 0)
+    ]
+    const [profile, list, walletTxRes, loyaltyTxRes] = await Promise.allSettled(tasks)
 
     if (profile.status === 'fulfilled' && profile.value) {
       const data = profile.value
@@ -67,23 +72,61 @@ export function AuthProvider({ children }) {
       const rows = Array.isArray(list.value) ? list.value : list.value.orders
       if (Array.isArray(rows)) setOrders(rows.map(mapOrder))
     }
-  }, [apiMode, setUser, setWalletBalance, setLoyaltyPoints, setOrders])
+
+    if (walletTxRes.status === 'fulfilled' && walletTxRes.value) {
+      const rows = Array.isArray(walletTxRes.value)
+        ? walletTxRes.value
+        : walletTxRes.value.data || walletTxRes.value.transactions || []
+      setWalletTransactions(
+        rows.map((tx, idx) => {
+          const credit = Number(tx.credit || 0)
+          const debit = Number(tx.debit || 0)
+          const net = credit > 0 ? credit : debit > 0 ? -debit : Number(tx.amount || 0)
+          return {
+            id: tx.id || `wt-${idx}`,
+            label: tx.type || tx.transaction_type || tx.label || (net >= 0 ? 'Wallet credit' : 'Wallet debit'),
+            amount: net,
+            createdAt: tx.created_at || tx.createdAt || new Date().toISOString()
+          }
+        })
+      )
+    }
+
+    if (loyaltyTxRes.status === 'fulfilled' && loyaltyTxRes.value) {
+      const rows = Array.isArray(loyaltyTxRes.value)
+        ? loyaltyTxRes.value
+        : loyaltyTxRes.value.data || loyaltyTxRes.value.transactions || []
+      setPointTransactions(
+        rows.map((tx, idx) => {
+          const credit = Number(tx.credit || 0)
+          const debit = Number(tx.debit || 0)
+          const points = credit > 0 ? credit : debit > 0 ? -debit : Number(tx.points || 0)
+          return {
+            id: tx.id || `pt-${idx}`,
+            label: tx.type || tx.transaction_type || tx.label || (points >= 0 ? 'Points earned' : 'Points redeemed'),
+            points,
+            createdAt: tx.created_at || tx.createdAt || new Date().toISOString()
+          }
+        })
+      )
+    }
+  }, [apiMode, setUser, setWalletBalance, setLoyaltyPoints, setOrders, setWalletTransactions, setPointTransactions])
 
   // Restore the session from the stored JWT on first load.
   useEffect(() => {
     if (!apiMode || !getToken()) return
     let cancelled = false
-    ;(async () => {
-      try {
-        // Customer tokens are refused by /auth/session (staff only), so the saved customer profile proves the session.
-        const profile = await customerApi.getCustomer()
-        if (!cancelled) setUser((current) => ({ ...(current || {}), ...toAccount(profile) }))
-        if (!cancelled) await syncAccount()
-      } catch {
-        // Token expired / API unreachable — stay signed out in this tab.
-        clearToken()
-      }
-    })()
+      ; (async () => {
+        try {
+          // Customer tokens are refused by /auth/session (staff only), so the saved customer profile proves the session.
+          const profile = await customerApi.getCustomer()
+          if (!cancelled) setUser((current) => ({ ...(current || {}), ...toAccount(profile) }))
+          if (!cancelled) await syncAccount()
+        } catch {
+          // Token expired / API unreachable — stay signed out in this tab.
+          clearToken()
+        }
+      })()
     return () => {
       cancelled = true
     }
@@ -157,13 +200,15 @@ export function AuthProvider({ children }) {
           name: [changes.firstName, changes.lastName].filter(Boolean).join(' '),
           email: changes.email,
           phone: changes.phone,
-          avatar_url: changes.avatarUrl
+          avatar_url: changes.avatarUrl,
+          ...(changes.password ? { password: changes.password } : {})
         })
       }
 
+      const { password: _ignoredPassword, ...safeChanges } = changes
       let updated = null
       setUser((current) => {
-        updated = { ...(current || {}), ...changes }
+        updated = { ...(current || {}), ...safeChanges }
         return updated
       })
       return updated
@@ -210,16 +255,16 @@ export function AuthProvider({ children }) {
           items: (order.items || []).map((line) =>
             line.isDeal
               ? {
-                  deal_id: line.dealId || line.productId,
-                  qty: line.quantity,
-                  selections: line.selections || []
-                }
+                deal_id: line.dealId || line.productId,
+                qty: line.quantity,
+                selections: line.selections || []
+              }
               : {
-                  product_id: line.productId,
-                  qty: line.quantity,
-                  variation: line.variation || undefined,
-                  addons: line.addons || []
-                }
+                product_id: line.productId,
+                qty: line.quantity,
+                variation: line.variation || undefined,
+                addons: line.addons || []
+              }
           ),
           order_type: orderType,
           branch_id: order.branchId || undefined,
@@ -227,19 +272,31 @@ export function AuthProvider({ children }) {
           delivery_address:
             orderType === 'delivery'
               ? {
-                  address: order.customer?.address || '',
-                  postcode: order.customer?.postcode || '',
-                  contact_person_name: order.customer?.name || '',
-                  contact_person_number: order.customer?.phone || ''
-                }
+                address: order.customer?.address || '',
+                postcode: order.customer?.postcode || '',
+                contact_person_name: order.customer?.name || '',
+                contact_person_number: order.customer?.phone || ''
+              }
               : undefined,
-          payment_method: order.payment === 'card' ? 'card' : 'cash',
+          payment_method: order.payment === 'wallet' ? 'wallet' : order.payment === 'card' ? 'card' : 'cash',
+          ...(Number(order.walletAmount) > 0 ? { wallet_amount: Number(Number(order.walletAmount).toFixed(2)) } : {}),
+          ...(Number(order.tip) > 0 ? { tip_amount: Number(Number(order.tip).toFixed(2)) } : {}),
+          cutlery: Boolean(order.cutlery),
+          ...(order.schedule?.time
+            ? {
+              delivery_date: order.schedule.date || undefined,
+              delivery_time: order.schedule.time
+            }
+            : {}),
           coupon_code: order.coupon || undefined,
           note: order.notes || undefined,
           client_id: idempotencyKey
         }
 
         const data = await ordersApi.placeOrder(payload, idempotencyKey)
+        if (order.payment === 'wallet' || Number(order.walletAmount) > 0) {
+          syncAccount().catch(() => { })
+        }
         const mapped = mapOrder(data)
         // The API receipt only carries the id/status/totals — keep the details
         // the customer just entered (address, schedule, payment label).
@@ -352,13 +409,24 @@ export function AuthProvider({ children }) {
 
   /** Loyalty Points → Wallet conversion */
   const convertPointsToWallet = useCallback(
-    (points) => {
+    async (points) => {
       const amount = Number(points)
       if (!Number.isFinite(amount) || amount <= 0) throw new Error('Enter a valid point amount')
       if (amount < loyaltySettings.minimumPoints) {
         throw new Error(`Minimum ${loyaltySettings.minimumPoints} points required`)
       }
       if (amount > loyaltyPoints) throw new Error('You do not have that many points')
+
+      if (apiMode) {
+        const res = await customerApi.transferLoyaltyToWallet(amount)
+        const credit = Number(res?.converted_amount ?? Number((amount / loyaltySettings.exchangeRate).toFixed(2)))
+        if (res?.loyalty_points != null) setLoyaltyPoints(Number(res.loyalty_points))
+        else setLoyaltyPoints((current) => Math.max(0, current - amount))
+        if (res?.wallet_balance != null) setWalletBalance(Number(res.wallet_balance))
+        else setWalletBalance((current) => Number((current + credit).toFixed(2)))
+        await syncAccount()
+        return credit
+      }
 
       const credit = Number((amount / loyaltySettings.exchangeRate).toFixed(2))
       setLoyaltyPoints((current) => current - amount)
@@ -385,11 +453,13 @@ export function AuthProvider({ children }) {
       return credit
     },
     [
+      apiMode,
       loyaltyPoints,
       setLoyaltyPoints,
       setWalletBalance,
       setPointTransactions,
-      setWalletTransactions
+      setWalletTransactions,
+      syncAccount
     ]
   )
 

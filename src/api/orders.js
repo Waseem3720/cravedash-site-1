@@ -33,3 +33,20 @@ export function cancelOrder(orderId) {
 export function listNotifications(limit = 20) {
   return api.get('/customer/order/notifications', { query: { limit } })
 }
+
+export function createStripeCheckoutSession({ orderId, successUrl, cancelUrl }) {
+  return api.post('/stripe/customer/checkout', {
+    order_id: orderId,
+    success_url: successUrl,
+    cancel_url: cancelUrl
+  })
+}
+
+export function getStripeCheckoutStatus({ sessionId, orderId }) {
+  return api.get('/stripe/customer/checkout/status', {
+    query: {
+      ...(sessionId ? { session_id: sessionId } : {}),
+      ...(orderId ? { order_id: orderId } : {})
+    }
+  })
+}

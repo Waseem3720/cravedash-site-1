@@ -1,10 +1,11 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { useAuth } from '../../context/AuthContext'
 import { useCart } from '../../context/CartContext'
 import { useToast } from '../../context/ToastContext'
 import { dishImage, formatPrice, onDishImageError } from '../../utils/format'
 import { couponDiscount, findCoupon } from '../../utils/coupon'
 import { isApiConfigured } from '../../api/client'
-import { applyCoupon as applyCouponApi } from '../../api/storefront'
+import { applyCoupon as applyCouponApi, getCoupons as getCouponsApi } from '../../api/storefront'
 import { mapCoupon } from '../../api/normalise'
 
 const TIPS = [0, 1, 2, 5]
@@ -14,7 +15,13 @@ export default function OrderSummaryPanel({
   onProceed,
   ctaLabel = 'Proceed to payment',
   showCta = true,
-  onScheduleClick
+  onScheduleClick,
+  walletBalance = 0,
+  walletApplied = 0,
+  walletError = '',
+  onApplyWallet,
+  onRemoveWallet,
+  amountDue
 }) {
   const {
     items,
@@ -33,15 +40,38 @@ export default function OrderSummaryPanel({
     setCutlery,
     setCoupon
   } = useCart()
+  const { isSignedIn } = useAuth()
   const { toast } = useToast()
   const [code, setCode] = useState('')
+  const [walletInput, setWalletInput] = useState('')
+  const [availableCoupons, setAvailableCoupons] = useState([])
   const [couponError, setCouponError] = useState('')
   const [customTip, setCustomTip] = useState('')
+  const displayTotal = amountDue != null ? amountDue : total
 
-  const applyCoupon = async (event) => {
-    event.preventDefault()
+  useEffect(() => {
+    if (!isApiConfigured() || !isSignedIn) {
+      setAvailableCoupons([])
+      return undefined
+    }
+    let cancelled = false
+    getCouponsApi()
+      .then((res) => {
+        if (cancelled) return
+        const rows = Array.isArray(res) ? res : res?.coupons || []
+        setAvailableCoupons(rows.map(mapCoupon).filter((entry) => entry.code))
+      })
+      .catch(() => {
+        if (!cancelled) setAvailableCoupons([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [isSignedIn])
+
+  const submitCouponCode = async (rawCode) => {
     setCouponError('')
-    const entered = code.trim()
+    const entered = String(rawCode || '').trim().toUpperCase()
     if (!entered) {
       setCouponError('Enter a coupon code.')
       return
@@ -55,7 +85,8 @@ export default function OrderSummaryPanel({
           setCouponError('That coupon code is not valid for this order.')
           return
         }
-        const mapped = mapCoupon(data.coupon || { code: entered })
+        const rawCoupon = data.coupon || data
+        const mapped = mapCoupon(rawCoupon)
         setCoupon({ ...mapped, code: mapped.code || entered })
         setCode('')
         toast(`Coupon ${mapped.code || entered} applied`)
@@ -83,6 +114,11 @@ export default function OrderSummaryPanel({
     setCoupon(found)
     setCode('')
     toast(`Coupon ${found.code} applied`)
+  }
+
+  const applyCoupon = async (event) => {
+    event.preventDefault()
+    await submitCouponCode(code)
   }
 
   return (
@@ -147,7 +183,60 @@ export default function OrderSummaryPanel({
           </form>
         )}
         {couponError && <p className="coupon__err">{couponError}</p>}
+        {!coupon && availableCoupons.length > 0 ? (
+          <div className="coupon-chips" style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+            {availableCoupons.map((entry) => (
+              <button
+                key={entry.id || entry.code}
+                type="button"
+                className="btn btn--outline btn--sm"
+                onClick={() => submitCouponCode(entry.code)}
+                title={entry.title || entry.code}
+              >
+                {entry.code} · {entry.discount}
+              </button>
+            ))}
+          </div>
+        ) : null}
       </div>
+
+      {walletBalance > 0 && onApplyWallet ? (
+        <div className="coupon" style={{ marginTop: 14 }}>
+          <p>Use wallet balance? ({formatPrice(walletBalance)} available)</p>
+          {walletApplied > 0 ? (
+            <div className="coupon__applied">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden="true">
+                <path d="m5 13 4 4 10-10" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              <b>Wallet</b>
+              <span>−{formatPrice(walletApplied)}</span>
+              <button type="button" className="link-muted" onClick={onRemoveWallet}>
+                Remove
+              </button>
+            </div>
+          ) : (
+            <form
+              className="coupon__row"
+              onSubmit={(event) => {
+                event.preventDefault()
+                onApplyWallet(walletInput || Math.min(walletBalance, total))
+                setWalletInput('')
+              }}
+            >
+              <input
+                inputMode="decimal"
+                placeholder={`Up to ${formatPrice(Math.min(walletBalance, total))}`}
+                value={walletInput}
+                onChange={(event) => setWalletInput(event.target.value.replace(/[^\d.]/g, ''))}
+              />
+              <button type="submit" className="btn btn--primary">
+                Apply
+              </button>
+            </form>
+          )}
+          {walletError ? <p className="coupon__err">{walletError}</p> : null}
+        </div>
+      ) : null}
 
       <div className="sum-rows">
         <div className="sum-rows__row">
@@ -172,6 +261,12 @@ export default function OrderSummaryPanel({
           <div className="sum-rows__row sum-rows__row--green">
             <span>Coupon {coupon?.code}</span>
             <span>−{formatPrice(discount)}</span>
+          </div>
+        ) : null}
+        {walletApplied > 0 ? (
+          <div className="sum-rows__row sum-rows__row--green">
+            <span>Wallet credit</span>
+            <span>−{formatPrice(walletApplied)}</span>
           </div>
         ) : null}
       </div>
@@ -233,7 +328,7 @@ export default function OrderSummaryPanel({
       <div className="sum-total">
         <b>Total</b>
         <div>
-          <span className="sum-total__val">{formatPrice(total)}</span>
+          <span className="sum-total__val">{formatPrice(displayTotal)}</span>
           <small className="sum-total__note">incl. fees and tax</small>
         </div>
       </div>
@@ -246,7 +341,7 @@ export default function OrderSummaryPanel({
           onClick={onProceed}
         >
           <span>{ctaLabel}</span>
-          <span>{formatPrice(total)}</span>
+          <span>{formatPrice(displayTotal)}</span>
         </button>
       ) : null}
     </aside>

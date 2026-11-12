@@ -25,7 +25,10 @@ export default function WalletView({ onBack }) {
                 <strong>{entry.label}</strong>
                 <small>{formatOrderDate(entry.createdAt)}</small>
               </div>
-              <span className="num">+{formatPrice(entry.amount)}</span>
+              <span className="num">
+                {Number(entry.amount) < 0 ? '−' : '+'}
+                {formatPrice(Math.abs(Number(entry.amount) || 0))}
+              </span>
             </div>
           ))}
         </div>

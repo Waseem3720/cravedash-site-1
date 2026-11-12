@@ -173,13 +173,18 @@ export function mapBanner(banner, index) {
 }
 
 export function mapCoupon(coupon) {
-  const type = coupon?.discount_type || coupon?.type || 'percent'
+  const type = String(coupon?.discount_type || coupon?.type || 'percent').toLowerCase()
+  const isPercent = type === 'percent' || type === 'percentage'
   const amount = num(coupon?.discount ?? coupon?.amount ?? coupon?.value)
+  const maxDiscount = num(coupon?.max_discount ?? coupon?.maxDiscount, 0)
   return {
     id: coupon?.id ?? coupon?.code,
     code: coupon?.code || coupon?.coupon_code || '',
     title: coupon?.title || coupon?.name || coupon?.description || 'Offer',
-    discount: type === 'percent' ? `${amount}% off` : `£${amount.toFixed(2)} off`,
+    discountType: isPercent ? 'percent' : 'amount',
+    discountValue: amount,
+    maxDiscount: maxDiscount > 0 ? maxDiscount : undefined,
+    discount: isPercent ? `${amount}% off` : `£${amount.toFixed(2)} off`,
     // `/coupon/list` spells the limit `min_purchase`, `/coupon/apply` uses `min_spend`.
     minSpend: num(coupon?.min_spend ?? coupon?.min_purchase ?? coupon?.min_order ?? coupon?.minimum_order, 0) || undefined,
     expiresAt: coupon?.expiry || coupon?.expire_at || ''

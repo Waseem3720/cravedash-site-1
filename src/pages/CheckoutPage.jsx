@@ -15,6 +15,7 @@ import { useUI } from '../context/UIContext'
 import { useToast } from '../context/ToastContext'
 import { useStorefront } from '../context/StorefrontContext'
 import { getBranchProductIds } from '../api/catalog'
+import { createStripeCheckoutSession, getStripeCheckoutStatus } from '../api/orders'
 import BranchMismatchModal from '../components/checkout/BranchMismatchModal'
 import { formatPrice, isValidUkPostcode, normalisePostcode } from '../utils/format'
 import { closingNotice, isRestaurantOpen } from '../utils/serviceHours'
@@ -44,7 +45,7 @@ export default function CheckoutPage() {
     minimumOrder,
     isBelowMinimum
   } = useCart()
-  const { user, isSignedIn, placeOrder } = useAuth()
+  const { user, isSignedIn, walletBalance, placeOrder } = useAuth()
   const { branchId, branches, products, selectBranch, selectedBranch, isLoading } = useStorefront()
   const { openAuth } = useUI()
   const { toast } = useToast()
@@ -57,6 +58,8 @@ export default function CheckoutPage() {
   const [error, setError] = useState('')
   const [placed, setPlaced] = useState(null)
   const [placing, setPlacing] = useState(false)
+  const [walletAmount, setWalletAmount] = useState(0)
+  const [walletError, setWalletError] = useState('')
   // Basket items that the selected branch does not have: { lines, missing, candidates } when the popup is open.
   const [mismatch, setMismatch] = useState(null)
 
@@ -96,7 +99,44 @@ export default function CheckoutPage() {
     if (items.length === 0 && !placed) setStep(1)
   }, [items.length, placed])
 
-  const paymentLabel = payment === 'card' ? 'Card Payment' : mode === 'delivery' ? 'Cash on Delivery' : 'Pay at Collection'
+  const walletBalanceNum = Number(walletBalance || 0)
+  const walletUsed =
+    payment === 'wallet'
+      ? Math.min(total, walletBalanceNum)
+      : Math.min(total, walletBalanceNum, Number(walletAmount || 0))
+  const amountDue = Math.max(0, total - walletUsed)
+
+  const applyWallet = (raw) => {
+    setWalletError('')
+    if (walletBalanceNum <= 0) {
+      setWalletError('Your wallet balance is £0.00.')
+      return
+    }
+    const parsed = Number(raw)
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      setWalletError('Enter a valid wallet amount.')
+      return
+    }
+    if (parsed > walletBalanceNum) {
+      setWalletError(`You only have ${formatPrice(walletBalanceNum)} in your wallet.`)
+      return
+    }
+    setWalletAmount(Math.min(parsed, total))
+  }
+
+  const removeWallet = () => {
+    setWalletAmount(0)
+    setWalletError('')
+  }
+
+  const paymentLabel =
+    payment === 'wallet'
+      ? 'Wallet'
+      : payment === 'card'
+        ? 'Card Payment'
+        : mode === 'delivery'
+          ? 'Cash on Delivery'
+          : 'Pay at Collection'
 
   const validateCheckout = () => {
     if (items.length === 0) return 'Your cart is empty — add something from the menu.'
@@ -119,16 +159,71 @@ export default function CheckoutPage() {
   }
 
   const validatePayment = () => {
-    if (payment === 'cash') return ''
-
-    const digits = card.number.replace(/\D/g, '')
-    if (digits.length < 13 || digits.length > 19) return 'Enter a valid card number.'
-    if (!card.name.trim()) return 'Enter the name as it appears on the card.'
-    if (!/^(0[1-9]|1[0-2])\s*\/\s*\d{2}$/.test(card.expiry.trim())) return 'Enter the expiry date as MM / YY.'
-    if (!/^\d{3,4}$/.test(card.cvv.trim())) return 'Enter the 3-digit CVV from the back of your card.'
-
+    if (payment === 'wallet') {
+      if (walletBalanceNum + 0.001 < total) {
+        return `Insufficient wallet balance (have ${formatPrice(walletBalanceNum)}).`
+      }
+      return ''
+    }
+    if (payment === 'cash' || payment === 'card') return ''
     return ''
   }
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const sessionId = params.get('session_id')
+    const orderId = params.get('order_id')
+    const stripePaid = params.get('stripe_paid')
+    const stripeCancel = params.get('stripe_cancel')
+    if (!stripePaid && !stripeCancel && !sessionId) return undefined
+
+    let cancelled = false
+    const cleanUrl = window.location.pathname
+    if (stripeCancel) {
+      setError('Card payment was cancelled. Your order is still saved as unpaid — you can retry or place a new order.')
+      toast('Card payment cancelled', 'error')
+      window.history.replaceState({}, '', cleanUrl)
+      return undefined
+    }
+
+    ;(async () => {
+      try {
+        const status = await getStripeCheckoutStatus({ sessionId, orderId })
+        if (cancelled) return
+        if (status?.paid || status?.payment_status === 'paid') {
+          let receipt = null
+          try {
+            const raw = sessionStorage.getItem('cd-pending-stripe-order-s1')
+            if (raw) receipt = JSON.parse(raw)
+            sessionStorage.removeItem('cd-pending-stripe-order-s1')
+          } catch {
+            receipt = null
+          }
+          setPlaced({
+            ...(receipt || { id: orderId || status?.order_id }),
+            id: orderId || status?.order_id || receipt?.id,
+            paymentStatus: 'paid',
+            paymentLabel: 'Card Payment (Stripe)'
+          })
+          clear()
+          setStep(4)
+          toast('Card payment confirmed — order placed!')
+        } else {
+          setError('Payment is still pending verification. Please check your order status.')
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : 'Could not verify Stripe payment status.')
+        }
+      } finally {
+        window.history.replaceState({}, '', cleanUrl)
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [clear, toast])
 
   /** Step 1 → Step 2 */
   const proceed = () => {
@@ -203,6 +298,7 @@ export default function CheckoutPage() {
         orderType: mode,
         payment,
         paymentLabel,
+        walletAmount: walletUsed,
         customer: {
           name: `${customer.firstName} ${customer.lastName || ''}`.trim(),
           phone: customer.phone,
@@ -233,6 +329,31 @@ export default function CheckoutPage() {
       toast(placeError?.message || 'Order could not be placed', 'error')
       setPlacing(false)
       return
+    }
+
+    if (payment === 'card' && amountDue > 0 && order?.id && !String(order.id).startsWith('PP-')) {
+      try {
+        const base = `${window.location.origin}${window.location.pathname}`
+        const session = await createStripeCheckoutSession({
+          orderId: order.id,
+          successUrl: `${base}?stripe_paid=1&order_id=${encodeURIComponent(order.id)}&session_id={CHECKOUT_SESSION_ID}`,
+          cancelUrl: `${base}?stripe_cancel=1&order_id=${encodeURIComponent(order.id)}`
+        })
+        if (session?.checkout_url) {
+          try {
+            sessionStorage.setItem('cd-pending-stripe-order-s1', JSON.stringify(order))
+          } catch {
+            // ignore storage errors
+          }
+          window.location.assign(session.checkout_url)
+          return
+        }
+      } catch (stripeErr) {
+        setError(stripeErr instanceof Error ? stripeErr.message : 'Could not start Stripe card checkout.')
+        toast(stripeErr instanceof Error ? stripeErr.message : 'Could not start Stripe card checkout.', 'error')
+        setPlacing(false)
+        return
+      }
     }
 
     setPlacing(false)
@@ -361,8 +482,9 @@ export default function CheckoutPage() {
                       }}
                       card={card}
                       onCardChange={setCard}
+                      walletBalance={walletBalanceNum}
                       error={error}
-                      total={total}
+                      total={amountDue}
                       onContinue={confirmPayment}
                     />
                     <button
@@ -384,6 +506,12 @@ export default function CheckoutPage() {
                 onProceed={proceed}
                 showCta={step === 1}
                 ctaLabel="Proceed to payment"
+                walletBalance={walletBalanceNum}
+                walletApplied={walletUsed}
+                walletError={walletError}
+                onApplyWallet={applyWallet}
+                onRemoveWallet={removeWallet}
+                amountDue={amountDue}
                 onScheduleClick={() => {
                   const target = document.getElementById('checkout-when')
                   if (target) target.scrollIntoView({ behavior: 'smooth', block: 'center' })

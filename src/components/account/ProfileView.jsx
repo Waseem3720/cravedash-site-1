@@ -47,7 +47,8 @@ export default function ProfileView({ onBack }) {
         lastName: form.lastName.trim(),
         email: form.email.trim(),
         phone,
-        avatarUrl
+        avatarUrl,
+        ...(form.password.trim() ? { password: form.password.trim() } : {})
       })
       setForm((current) => ({ ...current, phone, password: '' }))
       setSuccess('Profile updated')
@@ -80,7 +81,12 @@ export default function ProfileView({ onBack }) {
               accept="image/*"
               onChange={(event) => {
                 const file = event.target.files?.[0] || null
-                if (file) setAvatarUrl(URL.createObjectURL(file))
+                if (!file) return
+                const reader = new FileReader()
+                reader.onload = () => {
+                  if (typeof reader.result === 'string') setAvatarUrl(reader.result)
+                }
+                reader.readAsDataURL(file)
               }}
             />
             {avatarUrl ? (
