@@ -200,7 +200,7 @@ export function AuthProvider({ children }) {
           name: [changes.firstName, changes.lastName].filter(Boolean).join(' '),
           email: changes.email,
           phone: changes.phone,
-          avatar_url: changes.avatarUrl,
+          image: changes.avatarUrl ?? '',
           ...(changes.password ? { password: changes.password } : {})
         })
       }
